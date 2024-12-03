@@ -15,6 +15,30 @@ from visual_search import parse_args, VSM, visual_search
 from vstar_bench_eval import normalize_bbox, expand2square, VQA_LLM
 
 import cv2
+
+import logging
+from functools import wraps
+
+logging.basicConfig(
+    filename="gradio_debug.log",
+    level=logging.DEBUG,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+def log_function_call(func):
+    """Decorator to log function calls and exceptions."""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            logging.info(f"Calling {func.__name__} with args={args}, kwargs={kwargs}")
+            result = func(*args, **kwargs)
+            logging.info(f"Function {func.__name__} returned {result}")
+            return result
+        except Exception as e:
+            logging.error(f"Error in {func.__name__}: {e}", exc_info=True)
+            raise
+    return wrapper
+
 BOX_COLOR = (255, 0, 0) # Red
 TEXT_COLOR = (255, 255, 255) # White
 def visualize_bbox(img, bbox, class_name, color=BOX_COLOR, thickness=2):
@@ -126,130 +150,90 @@ Preprint Paper
 <a href='https://github.com/penghao-wu/vstar' target='_blank'>   Github </a></p>
 """
 
-
+@log_function_call
 def inference(input_str, input_image):
-	## filter out special chars
-	input_str = bleach.clean(input_str)
+    logging.debug(f"Received input_str: {input_str}, input_image: {input_image}")
+    
+    try:
+        input_str = bleach.clean(input_str)
+        if not re.match(r"^[A-Za-z ,.!?\'\"]+$", input_str) or len(input_str) < 1:
+            logging.warning(f"Invalid input detected: {input_str}")
+            return "[Error] Invalid input.", None, None, None
+        
+        question = input_str
+        image = Image.open(input_image).convert('RGB')
+        logging.info(f"Image loaded successfully: {input_image}")
+        
+        # Preprocess and model inference
+        image, _, _ = expand2square(image, tuple(int(x*255) for x in vqa_llm.image_processor.image_mean))
+        prediction = vqa_llm.free_form_inference(image, question, max_new_tokens=512)
+        logging.debug(f"Initial model prediction: {prediction}")
+        
+        missing_objects = []
+        if missing_objects_msg in prediction:
+            missing_objects = prediction.split(missing_objects_msg)[-1].strip().rstrip('.').split(',')
+            missing_objects = [obj.strip() for obj in missing_objects]
+            logging.info(f"Missing objects identified: {missing_objects}")
+        
+        if not missing_objects:
+            return prediction, None, None, None
+        
+        search_result, failed_objects = [], []
+        for object_name in missing_objects:
+            try:
+                logging.debug(f"Performing visual search for: {object_name}")
+                image = Image.open(input_image).convert('RGB')
+                smallest_size = max(int(np.ceil(min(image.width, image.height) / args.minimum_size_scale)), args.minimum_size)
+                final_step, path_length, search_successful, all_valid_boxes = visual_search(
+                    vsm, image, object_name, confidence_low=0.3, target_bbox=None, smallest_size=smallest_size
+                )
+                if not search_successful:
+                    failed_objects.append(object_name)
+                if all_valid_boxes:
+                    for bbox in all_valid_boxes:
+                        bbox[0] += final_step['bbox'][0]
+                        bbox[1] += final_step['bbox'][1]
+                        search_result.append({'bbox': bbox.tolist(), 'name': object_name})
+                logging.info(f"Search result for {object_name}: {search_result}")
+            except Exception as e:
+                logging.error(f"Error during visual search for {object_name}: {e}", exc_info=True)
+        
+        # Generate search result image
+        search_result_image = np.array(image).copy()
+        for obj in search_result:
+            search_result_image = visualize_bbox(search_result_image, obj['bbox'], obj['name'])
+        logging.info("Search result visualization complete.")
+        
+        # Final answer generation
+        object_names = [obj['name'] for obj in search_result]
+        response = vqa_llm.free_form_inference(image, question, max_new_tokens=512)
+        logging.info(f"Final response: {response}")
+        
+        return f"Need to conduct visual search for: {', '.join(missing_objects)}", \
+               f"Search results: {object_names}", search_result_image, response
+    
+    except Exception as e:
+        logging.error("Error in inference pipeline.", exc_info=True)
+        return "[Error] Something went wrong.", None, None, None
 
-	print("input_str: ", input_str, "input_image: ", input_image)
-
-	## input valid check
-	if not re.match(r"^[A-Za-z ,.!?\'\"]+$", input_str) or len(input_str) < 1:
-		output_str = "[Error] Invalid input: ", input_str
-		return output_str, None
-
-	# Model Inference
-	# check whether we need additional visual information
-	question = input_str
-	image = Image.open(input_image).convert('RGB')
-	image, _, _ = expand2square(image, tuple(int(x*255) for x in vqa_llm.image_processor.image_mean))
-	prediction = vqa_llm.free_form_inference(image, question, max_new_tokens=512)
-	missing_objects = []
-	if missing_objects_msg in prediction:
-		missing_objects = prediction.split(missing_objects_msg)[-1]
-		if missing_objects.endswith('.'):
-			missing_objects = missing_objects[:-1]
-		missing_objects = missing_objects.split(',')
-		missing_objects = [missing_object.strip() for missing_object in missing_objects]
-
-	if len(missing_objects) == 0:
-		return prediction, None, None, None
-
-	search_result = []
-	failed_objects = []
-	# visual search
-	for object_name in missing_objects:
-		image = Image.open(input_image).convert('RGB')
-		smallest_size = max(int(np.ceil(min(image.width, image.height)/args.minimum_size_scale)), args.minimum_size)
-		final_step, path_length, search_successful, all_valid_boxes = visual_search(vsm, image, object_name, confidence_low=0.3, target_bbox=None, smallest_size=smallest_size)
-		if not search_successful:
-			failed_objects.append(object_name)
-		if all_valid_boxes is not None:
-			# might exist multiple target instances
-			for search_bbox in all_valid_boxes:
-				search_final_patch = final_step['bbox']
-				search_bbox[0] += search_final_patch[0]
-				search_bbox[1] += search_final_patch[1]
-				search_result.append({'bbox':search_bbox.tolist(),'name':object_name})
-		else:
-			search_bbox = final_step['detection_result']
-			search_final_patch = final_step['bbox']
-			search_bbox[0] += search_final_patch[0]
-			search_bbox[1] += search_final_patch[1]
-			search_result.append({'bbox':search_bbox.tolist(),'name':object_name})
-
-	# answer based on the searched results
-	image = Image.open(input_image).convert('RGB')
-	object_names = [_['name'] for _ in search_result]
-	bboxs = deepcopy([_['bbox'] for _ in search_result])
-
-	search_result_image = np.array(image).copy()
-	for object_name, bbox in zip(object_names, bboxs):
-		search_result_image = visualize_bbox(search_result_image, bbox, class_name=object_name, color=(255,0,0))
-
-	if len(object_names) <= 2:
-		images_long = [False]
-		objects_long = [True]*len(object_names)
-	else:
-		images_long = [False]
-		objects_long = [False]*len(object_names)
-	object_crops = []
-	for bbox in bboxs:
-		object_crop = vqa_llm.get_object_crop(image, bbox, patch_scale=1.2)
-		object_crops.append(object_crop)
-	object_crops = torch.stack(object_crops, 0)
-	image, left, top = expand2square(image, tuple(int(x*255) for x in vqa_llm.image_processor.image_mean))
-	bbox_list = []
-	for bbox in bboxs:
-		bbox[0] += left
-		bbox[1] += top
-		bbox_list.append(bbox)
-	bbox_list = [normalize_bbox(bbox, image.width, image.height) for bbox in bbox_list]
-	cur_focus_msg = focus_msg
-	for i, (object_name, bbox) in enumerate(zip(object_names, bbox_list)):
-		cur_focus_msg = cur_focus_msg + "{} <object> at location [{:.3f},{:.3f},{:.3f},{:.3f}]".format(object_name, bbox[0], bbox[1], bbox[2], bbox[3])
-		if i != len(bbox_list)-1:
-			cur_focus_msg = cur_focus_msg+"; "
-		else:
-			cur_focus_msg = cur_focus_msg +'.'
-	if len(failed_objects) > 0:
-		if len(object_names) > 0:
-			cur_focus_msg = cur_focus_msg[:-1] + "; "
-		for i, failed_object in enumerate(failed_objects):
-			cur_focus_msg = cur_focus_msg + "{} not existent in the image".format(object_name)
-			if i != len(failed_objects)-1:
-				cur_focus_msg = cur_focus_msg+"; "
-			else:
-				cur_focus_msg = cur_focus_msg +'.'
-	question_with_focus = cur_focus_msg+"\n"+question
-	response = vqa_llm.free_form_inference(image, question_with_focus, object_crops=object_crops, images_long=images_long, objects_long=objects_long, temperature=0.0, max_new_tokens=512)
-
-	search_result_str = ""
-	if len(object_names) > 0:
-		search_result_str += "Targets located after search: {}.".format(', '.join(object_names))
-	if len(failed_objects) > 0:
-		search_result_str += "Targets unable to locate after search: {}.".format(', '.join(failed_objects))
-
-	return "Need to conduct visual search to search for: {}.".format(', '.join(missing_objects)), search_result_str, search_result_image, response
-	
+# Attach Gradio interface with the enhanced inference function
 demo = gr.Interface(
-	inference,
-	inputs=[
-		gr.Textbox(lines=1, placeholder=None, label="Text Instruction"),
-		gr.Image(type="filepath", label="Input Image"),
-	],
-	outputs=[
-		gr.Textbox(lines=1, placeholder=None, label="Direct Answer"),
-		gr.Textbox(lines=1, placeholder=None, label="Visual Search Results"),
-		gr.Image(type="pil", label="Visual Search Results"),
-		gr.Textbox(lines=1, placeholder=None, label="Final Answer"),
-	],
-	examples=examples,
-	title=title,
-	description=description,
-	article=article,
-	allow_flagging="auto",
+    inference,
+    inputs=[
+        gr.Textbox(lines=1, placeholder=None, label="Text Instruction"),
+        gr.Image(type="filepath", label="Input Image"),
+    ],
+    outputs=[
+        gr.Textbox(lines=1, placeholder=None, label="Direct Answer"),
+        gr.Textbox(lines=1, placeholder=None, label="Visual Search Results"),
+        gr.Image(type="pil", label="Visual Search Results"),
+        gr.Textbox(lines=1, placeholder=None, label="Final Answer"),
+    ],
+    examples=examples,
+    title=title,
+    description=description,
+    article=article,
+    allow_flagging="auto",
 )
-
 demo.queue()
 demo.launch()
