@@ -8,8 +8,8 @@
     ],
     "question": "What is the color of the traffic light in this image?",
     "options": [
-        "(A) Red . ",
-        "(B) Yellow .",
-        "(C) Green ."
+        "The traffic light in this image is red",
+        "The traffic light in this image is green.",
+        "The traffic light in this image is yellow."
     ]
 }
