@@ -24,6 +24,13 @@ from VisualSearch.utils.utils import expand2square
 from VisualSearch.utils.utils import (DEFAULT_IM_END_TOKEN, DEFAULT_IM_START_TOKEN,
 						 DEFAULT_IMAGE_TOKEN, IMAGE_TOKEN_INDEX)
 
+import logging
+
+logging.basicConfig(
+    filename="visual_search.log",
+    level=logging.DEBUG,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 def parse_args(args):
 	parser = argparse.ArgumentParser(description="Visual Search Evaluation")
@@ -507,7 +514,7 @@ def visual_search(vsm, image, target_object_name, target_bbox, smallest_size, co
 					final_step = search_step
 					path_length = i+1
 		final_step['detection_result'] = final_step['temp_detection_result'][1]
-		print('max_logit:', max_logit)
+		logging.info('max_logit: {}'.format(max_logit))
 		if max_logit >= confidence_low:
 			search_successful = True
 	if visualize:
