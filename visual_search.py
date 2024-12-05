@@ -411,12 +411,12 @@ def visual_search_queue(vsm, image, target_object_name, current_patch, search_pa
 		if top_logit > confidence_high:
 			search_path[-1]['detection_result'] = final_bbox
 			# only return multiple detected instances on the whole image
-			#if len(search_path) == 1:
-
-			all_valid_boxes = pred_bboxes[pred_logits.view(-1)>0.5].view(-1, 4)
-			all_valid_boxes = all_valid_boxes * torch.Tensor([[image_patch.width, image_patch.height, image_patch.width, image_patch.height]])
-			all_valid_boxes[:, :2] -= all_valid_boxes[:, 2:] / 2
-			return True, search_path, all_valid_boxes
+			if len(search_path) == 1:
+				all_valid_boxes = pred_bboxes[pred_logits.view(-1)>0.5].view(-1, 4)
+				all_valid_boxes = all_valid_boxes * torch.Tensor([[image_patch.width, image_patch.height, image_patch.width, image_patch.height]])
+				all_valid_boxes[:, :2] -= all_valid_boxes[:, 2:] / 2
+				return True, search_path, all_valid_boxes
+			return True, search_path, None
 		else:
 			search_path[-1]['temp_detection_result'] = (top_logit, final_bbox)
 
