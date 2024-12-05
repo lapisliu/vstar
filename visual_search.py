@@ -507,6 +507,7 @@ def visual_search(vsm, image, target_object_name, target_bbox, smallest_size, co
 					final_step = search_step
 					path_length = i+1
 		final_step['detection_result'] = final_step['temp_detection_result'][1]
+		print('max_logit:', max_logit)
 		if max_logit >= confidence_low:
 			search_successful = True
 	if visualize:
