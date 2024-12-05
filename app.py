@@ -185,7 +185,7 @@ def inference(input_str, input_image):
                 image = Image.open(input_image).convert('RGB')
                 smallest_size = max(int(np.ceil(min(image.width, image.height) / args.minimum_size_scale)), args.minimum_size)
                 final_step, path_length, search_successful, all_valid_boxes = visual_search(
-                    vsm, image, object_name, confidence_low=0.3, target_bbox=None, smallest_size=smallest_size
+                    vsm, image, object_name, confidence_low=0.15, target_bbox=None, smallest_size=smallest_size
                 )
                 if not search_successful:
                     failed_objects.append(object_name)
@@ -203,6 +203,9 @@ def inference(input_str, input_image):
         for obj in search_result:
             search_result_image = visualize_bbox(search_result_image, obj['bbox'], obj['name'])
         logging.info("Search result visualization complete.")
+
+		# save the result image
+        cv2.imwrite("result.jpg", search_result_image)
         
         # Final answer generation
         object_names = [obj['name'] for obj in search_result]
