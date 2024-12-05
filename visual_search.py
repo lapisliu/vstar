@@ -527,7 +527,7 @@ def main(args):
 	acc_list = []
 	search_path_length_list = []
 
-	for test_type in ['direct_attributes', 'relative_position']:
+	for test_type in ['direct_attributes']:
 		folder = os.path.join(benchmark_folder, test_type)
 		output_folder = None
 		if args.visualization:
