@@ -28,7 +28,7 @@ import logging
 
 logging.basicConfig(
     filename="visual_search.log",
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
@@ -500,6 +500,8 @@ def visual_search(vsm, image, target_object_name, target_bbox, smallest_size, co
 
 	queue = PriorityQueue()
 	search_successful, search_path, all_valid_boxes = visual_search_queue(vsm, image, target_object_name, init_patch, search_path, queue, smallest_size=smallest_size, confidence_high=confidence_high, target_cue_threshold=target_cue_threshold, target_cue_threshold_decay=target_cue_threshold_decay, target_cue_threshold_minimum=target_cue_threshold_minimum)
+	logging.info('search_path: {}'.format(search_path))
+	logging.info('search_successful: {}'.format(search_successful))
 	path_length = len(search_path)
 	final_step = search_path[-1]
 	if not search_successful:
