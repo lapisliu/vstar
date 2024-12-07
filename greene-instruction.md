@@ -11,7 +11,8 @@ cd cv24/project/
 #get the overlay file if not already
 wget https://g-016e9b.00888.8540.data.globus.org/overlay-vstar.ext3
 
-#create a cache folder if not already
+#create a cache folder if not already.
+#The cache folder should be either in the vast or scratch space, not in the home directory. In my case it's in the vast space.
 mkdir cache
 
 #The cache path before the colon here should be the cache folder path you just created. For example, mine's /vast/xl3893/cv24/project/cache
