@@ -179,7 +179,7 @@ def eval_model(args):
 
 	missing_objects_msg = "Sorry, I can not answer the question. Some visual information about the following objects is missing or unclear:"
 	focus_msg = "Additional visual information to focus on: "
-	for test_type in ['direct_attributes', 'relative_position']:
+	for test_type in ['direct_attributes', 'difficult']:
 		results[test_type] = []
 		folder = os.path.join(args.benchmark_folder, test_type)
 		image_files = list(filter(lambda file: '.json' not in file, os.listdir(folder)))
