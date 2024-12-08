@@ -1,0 +1,11 @@
+{
+    "target_object": [
+        "traffic light"
+    ],
+    "question": "What is the color of the traffic light?",
+    "options": [
+        "red.",
+        "green.",
+        "yellow."
+    ]
+}
