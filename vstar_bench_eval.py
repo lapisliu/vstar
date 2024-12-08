@@ -281,6 +281,9 @@ def eval_model(args):
 			results[test_type].append(result_single_sample)
 
 		print(test_type, np.mean(per_type_acc[test_type]))
+		# save results with path output_path + test_type
+		with open(args.output_path.replace('.json', f'_{test_type}.json'), 'w') as f:
+			json.dump(results[test_type], f, indent=4)
 
 	print(np.mean(all_acc))
 
