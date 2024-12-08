@@ -255,19 +255,17 @@ def eval_model(args):
 						cur_focus_msg = cur_focus_msg +'.'
 				question_with_focus = cur_focus_msg+"\n"+question
 				option_chosen = vqa_llm.multiple_choices_inference(image, question_with_focus, options, object_crops, images_long=images_long, objects_long=objects_long)
-				free_form_prediction = vqa_llm.free_form_inference(image, question_with_focus)
-
 			else:
 				option_chosen = vqa_llm.multiple_choices_inference(image, question, options)
 
 			#choose the option using free-form prediction with string matching.
 			option_chosen_direct = -1
 			for i, option in enumerate(options):
-				if option.lower() in free_form_prediction.lower():
+				if option.lower() in prediction.lower():
 					option_chosen_direct = i
 					break
 
-			correct = 1 if option_chosen==0 else 0
+			correct = 1 if (option_chosen==0 or option_chosen_direct==0) else 0
 			per_type_acc[test_type].append(correct)
 			all_acc.append(correct)
 
