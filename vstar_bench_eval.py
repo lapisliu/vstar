@@ -179,7 +179,7 @@ def eval_model(args):
 
 	missing_objects_msg = "Sorry, I can not answer the question. Some visual information about the following objects is missing or unclear:"
 	focus_msg = "Additional visual information to focus on: "
-	for test_type in ['direct_attributes', 'difficult']:
+	for test_type in ['direct_attributes', 'difficult', 'easy_single', 'google_street_view', 'multiple', 'small_light']:
 		results[test_type] = []
 		folder = os.path.join(args.benchmark_folder, test_type)
 		image_files = list(filter(lambda file: '.json' not in file, os.listdir(folder)))
@@ -255,8 +255,17 @@ def eval_model(args):
 						cur_focus_msg = cur_focus_msg +'.'
 				question_with_focus = cur_focus_msg+"\n"+question
 				option_chosen = vqa_llm.multiple_choices_inference(image, question_with_focus, options, object_crops, images_long=images_long, objects_long=objects_long)
+				free_form_prediction = vqa_llm.free_form_inference(image, question_with_focus)
+
 			else:
 				option_chosen = vqa_llm.multiple_choices_inference(image, question, options)
+
+			#choose the option using free-form prediction with string matching.
+			option_chosen_direct = -1
+			for i, option in enumerate(options):
+				if option.lower() in free_form_prediction.lower():
+					option_chosen_direct = i
+					break
 
 			correct = 1 if option_chosen==0 else 0
 			per_type_acc[test_type].append(correct)
@@ -269,6 +278,7 @@ def eval_model(args):
 			result_single_sample['missing_objects'] = missing_objects
 			result_single_sample['search_result'] = search_result	
 			result_single_sample['option_chosen'] = option_chosen
+			result_single_sample['option_chosen_direct'] = option_chosen_direct
 			result_single_sample['correct'] = correct
 			results[test_type].append(result_single_sample)
 
