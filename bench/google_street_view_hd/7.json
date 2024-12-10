@@ -9,6 +9,7 @@
     "options": [
         "yellow",
         "red",
-        "green"
+        "green",
+        "no traffic light for going straight"
     ]
 }

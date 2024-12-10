@@ -6,6 +6,7 @@
     "options": [
         "red",
         "green",
-        "yellow"
+        "yellow",
+        "no traffic light"
     ]
 }
