@@ -10,7 +10,6 @@
         "no traffic light",
         "red",
         "green",
-        "yellow",
-        "no traffic light for going straight"
+        "yellow"
     ]
 }
