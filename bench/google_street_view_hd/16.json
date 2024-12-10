@@ -7,9 +7,9 @@
     ],
     "question": "What is the color of the traffic light for going straight?",
     "options": [
+        "no traffic light",
         "red",
         "green",
-        "yellow",
-        "no traffic light"
+        "yellow"
     ]
 }
