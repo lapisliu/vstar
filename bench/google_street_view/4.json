@@ -9,6 +9,7 @@
     "options": [
         "The traffic light in this image is green.",
         "The traffic light in this image is red",
-        "The traffic light in this image is yellow."
+        "The traffic light in this image is yellow.",
+        "no traffic light"
     ]
 }
