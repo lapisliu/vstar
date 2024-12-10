@@ -1,0 +1,14 @@
+{
+    "target_object": [
+        "traffic light"
+    ],
+    "bbox": [
+
+    ],
+    "question": "What is the color of the traffic light for going straight?",
+    "options": [
+        "green",
+        "red",
+        "yellow"
+    ]
+}
