@@ -7,6 +7,6 @@
         "The color of the traffic light for going straight in this image is green.",
         "The color of the traffic light for going straight in this image is red.",
         "The color of the traffic light for going straight in this image is yellow.",
-        "no traffic light for going straight"
+        "unknown"
     ]
 }
