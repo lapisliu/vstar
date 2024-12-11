@@ -7,7 +7,7 @@
     ],
     "question": "What is the color of the traffic light for going straight?",
     "options": [
-        "no traffic light",
+        "unknown",
         "red",
         "green",
         "yellow"
