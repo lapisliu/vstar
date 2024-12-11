@@ -287,8 +287,8 @@ def eval_model(args):
 
 	print(np.mean(all_acc))
 
-	with open(args.output_path, 'w') as f:
-		json.dump(results, f, indent=4)
+	# with open(args.output_path, 'w') as f:
+	# 	json.dump(results, f, indent=4)
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
