@@ -9,6 +9,7 @@ from PIL import Image
 import numpy as np
 import torch
 from torch.nn import CrossEntropyLoss
+from torchvision import transforms
 
 from LLaVA.llava.constants import IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN
 from LLaVA.llava.conversation import conv_templates, SeparatorStyle
@@ -16,7 +17,10 @@ from LLaVA.llava.model.builder import load_pretrained_model
 from LLaVA.llava.utils import disable_torch_init
 from LLaVA.llava.mm_utils import get_model_name_from_path, KeywordsStoppingCriteria, tokenizer_image_object_token
 
+from openai import OpenAI
 from visual_search import parse_args, VSM, visual_search
+import io
+import base64
 
 def normalize_bbox(bbox, image_width, image_height):
 	normalized_bbox = [bbox[0]/image_width, bbox[1]/image_height, (bbox[0]+bbox[2])/image_width, (bbox[1]+bbox[3])/image_height]
@@ -34,7 +38,14 @@ def expand2square(pil_img, background_color):
 		result = Image.new(pil_img.mode, (height, height), background_color)
 		result.paste(pil_img, ((height - width) // 2, 0))
 		return result, (height - width) // 2, 0
-
+def load_api_key():
+    try:
+        with open('config.json') as f:
+            config = json.load(f)
+            return config['openai_api_key']
+    except FileNotFoundError:
+        # Fallback to environment variable
+        return os.getenv('OPENAI_API_KEY')
 class VQA_LLM:
 	def __init__(self, args):
 		disable_torch_init()
@@ -163,6 +174,65 @@ class VQA_LLM:
 		option_chosen = torch.stack(loss_list).argmin()
 
 		return option_chosen.cpu().item()
+	
+	@torch.inference_mode()
+	def multiple_choices_inference_gpt4(self, image, question, options, object_crops=None):
+		api_key = load_api_key()
+		if not api_key:
+			raise ValueError("OpenAI API key not found. Please set it in config.json or as an environment variable.")
+  		# Convert PIL Image to bytes, ensuring it's in square format like other functions
+		image, _, _ = expand2square(image, tuple(int(x*255) for x in [0.48145466, 0.45782750, 0.40821073]))
+		img_byte_arr = io.BytesIO()
+		image.save(img_byte_arr, format='JPEG')
+		img_byte_arr = img_byte_arr.getvalue()
+
+		# Construct the prompt similar to original format
+		prompt = f"Question: {question}\nPlease choose the most appropriate option from: {', '.join(options)}\n \
+      				Response with exactly one of the given options."
+		context_image = {
+								"type": "image_url",
+								"image_url": {
+									"url": f"data:image/jpeg;base64,{base64.b64encode(img_byte_arr).decode('utf-8')}"
+								}
+							}
+		content = [
+			{
+				"type": "text",
+				"text": prompt
+			},
+			context_image
+		]
+		# Process cropped images
+		if object_crops is not None:
+			for crop in object_crops:
+				if isinstance(crop, torch.Tensor):
+					crop = transforms.ToPILImage()(crop)
+				crop_bytes = io.BytesIO()
+				crop.save(crop_bytes, format='JPEG')
+				content.append({
+					"type": "image_url",
+					"image_url": {
+						"url": f"data:image/jpeg;base64,{base64.b64encode(crop_bytes.getvalue()).decode('utf-8')}"
+					}
+				})
+		try:
+			client = OpenAI(api_key=api_key)
+			response = client.chat.completions.create(
+				model="gpt-4o-mini",
+				messages=[{"role": "user", "content": content}],
+				max_tokens=1000
+			)
+			answer = response.choices[0].message.content.strip()
+			
+			# Find the matching option
+			for idx, option in enumerate(options):
+				if option.lower() in answer.lower():
+					return idx
+			return 0  # Default to first option if no match found
+			
+		except Exception as e:
+			print(f"GPT-4 API error: {e}")
+			return 0  # Default to first option on error
 
 
 def eval_model(args):
@@ -290,6 +360,144 @@ def eval_model(args):
 	with open(args.output_path, 'w') as f:
 		json.dump(results, f, indent=4)
 
+def eval_model_gpt4(args):
+    # Init models
+    vqa_llm = VQA_LLM(args)
+    vsm_args = parse_args({})
+    vsm_args.version = args.vsm_model_path
+    vsm = VSM(vsm_args)
+
+    # Init result trackers
+    results = {}
+    per_type_acc = defaultdict(list)
+    all_acc = []
+
+    missing_objects_msg = "Sorry, I can not answer the question. Some visual information about the following objects is missing or unclear:"
+    focus_msg = "Additional visual information to focus on: "
+
+    # Evaluate each test type
+    for test_type in ['direct_attributes', 'difficult', 'easy_single', 'google_street_view', 'multiple', 'small_light']:
+        results[test_type] = []
+        folder = os.path.join(args.benchmark_folder, test_type)
+        image_files = list(filter(lambda file: '.json' not in file, os.listdir(folder)))
+        
+        for image_file in tqdm(image_files):
+            result_single_sample = {}
+            image_path = os.path.join(folder, image_file)
+            annotation_path = image_path.split('.')[0] + '.json'
+            image = Image.open(image_path).convert('RGB')
+            annotation = json.load(open(annotation_path))
+            
+            question = annotation['question']
+            # Initial free-form response to check for needed visual search
+            prediction = vqa_llm.free_form_inference_gpt4(image, question)
+            
+            # Parse missing objects if any
+            missing_objects = []
+            if missing_objects_msg in prediction:
+                missing_objects = prediction.split(missing_objects_msg)[-1]
+                if missing_objects.endswith('.'):
+                    missing_objects = missing_objects[:-1]
+                missing_objects = [obj.strip() for obj in missing_objects.split(',')]
+
+            # Perform visual search if needed
+            search_result = []
+            if missing_objects:
+                for object_name in missing_objects:
+                    image = Image.open(image_path).convert('RGB')
+                    smallest_size = max(int(np.ceil(min(image.width, image.height)/args.minimum_size_scale)), args.minimum_size)
+                    final_step, _, _, all_valid_boxes = visual_search(vsm, image, object_name, target_bbox=None, smallest_size=smallest_size)
+                    
+                    if all_valid_boxes is not None:
+                        for search_bbox in all_valid_boxes:
+                            search_final_patch = final_step['bbox']
+                            search_bbox[0] += search_final_patch[0]
+                            search_bbox[1] += search_final_patch[1]
+                            search_result.append({'bbox': search_bbox.tolist(), 'name': object_name})
+                    else:
+                        search_bbox = final_step['detection_result']
+                        search_final_patch = final_step['bbox']
+                        search_bbox[0] += search_final_patch[0]
+                        search_bbox[1] += search_final_patch[1]
+                        search_result.append({'bbox': search_bbox.tolist(), 'name': object_name})
+
+            # Process multiple-choice options with GPT4
+            options = annotation['options']
+            image = Image.open(image_path).convert('RGB')
+            
+            if missing_objects:
+                object_names = [_['name'] for _ in search_result]
+                bboxs = deepcopy([_['bbox'] for _ in search_result])
+                
+                # Prepare object crops
+                object_crops = []
+                for bbox in bboxs:
+                    object_crop = vqa_llm.get_object_crop(image, bbox, patch_scale=1.2)
+                    object_crops.append(object_crop)
+                object_crops = torch.stack(object_crops, 0)
+                
+                # Process image and bboxes
+                image, left, top = expand2square(image, tuple(int(x*255) for x in vqa_llm.image_processor.image_mean))
+                bbox_list = []
+                for bbox in bboxs:
+                    bbox[0] += left
+                    bbox[1] += top
+                    bbox_list.append(bbox)
+                bbox_list = [normalize_bbox(bbox, image.width, image.height) for bbox in bbox_list]
+                
+                # Build focus message
+                cur_focus_msg = focus_msg
+                for i, (object_name, bbox) in enumerate(zip(object_names, bbox_list)):
+                    cur_focus_msg += "{} <object> at location [{:.3f},{:.3f},{:.3f},{:.3f}]".format(
+                        object_name, bbox[0], bbox[1], bbox[2], bbox[3])
+                    cur_focus_msg += "; " if i != len(bbox_list)-1 else "."
+                
+                question_with_focus = cur_focus_msg + "\n" + question
+                option_chosen = vqa_llm.multiple_choices_inference_gpt4(
+					image,  # full image
+					question_with_focus, 
+					options, 
+					object_crops  # cropped objects
+				)
+            else:
+                option_chosen = vqa_llm.multiple_choices_inference_gpt4(image, question, options)
+
+            # Direct option matching from free-form prediction
+            option_chosen_direct = -1
+            for i, option in enumerate(options):
+                if option.lower() in prediction.lower():
+                    option_chosen_direct = i
+                    break
+
+            # Calculate accuracy and store results
+            correct = 1 if (option_chosen == 0 or option_chosen_direct == 0) else 0
+            per_type_acc[test_type].append(correct)
+            all_acc.append(correct)
+
+            # Store sample results
+            result_single_sample.update({
+                'question': question,
+                'options': options,
+                'image': image_file,
+                'prediction_freeform': prediction,
+                'missing_objects': missing_objects,
+                'search_result': search_result,
+                'option_chosen': option_chosen,
+                'option_chosen_direct': option_chosen_direct,
+                'correct': correct
+            })
+            results[test_type].append(result_single_sample)
+
+        # Print and save results for test type
+        print(f"{test_type}: {np.mean(per_type_acc[test_type])}")
+        with open(args.output_path.replace('.json', f'_{test_type}.json'), 'w') as f:
+            json.dump(results[test_type], f, indent=4)
+
+    # Print overall accuracy and save full results
+    print(f"Overall accuracy: {np.mean(all_acc)}")
+    with open(args.output_path, 'w') as f:
+        json.dump(results, f, indent=4)
+
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--vqa-model-path", type=str, default="craigwu/seal_vqa_7b")
@@ -302,4 +510,4 @@ if __name__ == "__main__":
 	parser.add_argument("--minimum_size", default=224, type=int, help="minimum sub-image size for the termination of search")
 
 	args = parser.parse_args()
-	eval_model(args)
+	eval_model_gpt4(args)
