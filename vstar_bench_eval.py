@@ -376,7 +376,7 @@ def eval_model_gpt4(args):
     focus_msg = "Additional visual information to focus on: "
 
     # Evaluate each test type
-    for test_type in ['direct_attributes', 'difficult', 'easy_single', 'google_street_view', 'multiple', 'small_light']:
+    for test_type in ['small_light']:
         results[test_type] = []
         folder = os.path.join(args.benchmark_folder, test_type)
         image_files = list(filter(lambda file: '.json' not in file, os.listdir(folder)))
@@ -390,7 +390,7 @@ def eval_model_gpt4(args):
             
             question = annotation['question']
             # Initial free-form response to check for needed visual search
-            prediction = vqa_llm.free_form_inference_gpt4(image, question)
+            prediction = vqa_llm.free_form_inference(image, question)
             
             # Parse missing objects if any
             missing_objects = []
