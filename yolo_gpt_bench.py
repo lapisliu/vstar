@@ -4,6 +4,7 @@ from PIL import Image
 from ultralytics import YOLO
 import openai
 import base64
+from collections import defaultdict
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 if not openai.api_key:
@@ -11,13 +12,18 @@ if not openai.api_key:
 
 model = YOLO("yolo11x.pt")
 
-benchmark_folder = "difficult"
+benchmark_folder = "test"
 
 image_folder = "bench/" + benchmark_folder
 label_folder = image_folder
-output_file = benchmark_folder+".json"
+output_file = benchmark_folder+"_yolo_bench.json"
 
 results = []
+correct_count = 0
+total_images = 0
+
+metrics = defaultdict(lambda: {"TP": 0, "FP": 0, "FN": 0})
+
 
 def get_gpt_response(question, options, cropped_image_pathes):
     base64_images = []
@@ -95,6 +101,18 @@ for image_name in os.listdir(image_folder):
 
     is_correct = correct_answer in response
 
+    if is_correct:
+        is_correct = True
+        metrics[correct_answer]["TP"] += 1
+    else:
+        metrics[response]["FP"] += 1
+    
+    if not is_correct:
+        metrics[correct_answer]["FN"] += 1
+
+    correct_count += int(is_correct)
+    total_images += 1
+
     results.append({
         "image": image_name,
         "bounding_boxes": bounding_boxes,
@@ -103,8 +121,28 @@ for image_name in os.listdir(image_folder):
         "correctness": is_correct
     })
 
+accuracy = correct_count / total_images if total_images > 0 else 0
+
+precision_recall = {}
+for option, values in metrics.items():
+    tp = values["TP"]
+    fp = values["FP"]
+    fn = values["FN"]
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+    precision_recall[option] = {"precision": precision, "recall": recall}
+
+print(f"Accuracy: {accuracy:.2f}")
+print("Precision and Recall for each option:")
+for option, values in precision_recall.items():
+    print(f"  {option}: Precision={values['precision']:.2f}, Recall={values['recall']:.2f}")
+
 with open(output_file, 'w') as f:
-    json.dump(results, f, indent=4)
+    json.dump({
+        "results":results,
+        "accuracy": accuracy,
+        "precision_recall": precision_recall
+    }, f, indent=4)
 
 print(f"Results saved to {output_file}")
 
