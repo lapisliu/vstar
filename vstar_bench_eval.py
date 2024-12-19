@@ -362,9 +362,6 @@ def eval_model(args):
 
 	print(np.mean(all_acc))
 
-	with open(args.output_path, 'w') as f:
-		json.dump(results, f, indent=4)
-
 def eval_model_gpt4(args):
     # Init models
     vqa_llm = VQA_LLM(args)
@@ -380,7 +377,6 @@ def eval_model_gpt4(args):
     missing_objects_msg = "Sorry, I can not answer the question. Some visual information about the following objects is missing or unclear:"
     focus_msg = "Additional visual information to focus on: "
 
-    # Evaluate each test type
     for test_type in ['easy_single', 'google_street_view_hd', 'multiple', 'small_light', 'no_light', 'cropped_traffic_lights']:
         start_time = time.time()
         results[test_type] = []
@@ -395,10 +391,8 @@ def eval_model_gpt4(args):
             annotation = json.load(open(annotation_path))
             
             question = annotation['question']
-            # Initial free-form response to check for needed visual search
             prediction = vqa_llm.free_form_inference(image, question)
             
-            # Parse missing objects if any
             missing_objects = []
             if missing_objects_msg in prediction:
                 missing_objects = prediction.split(missing_objects_msg)[-1]
@@ -435,7 +429,6 @@ def eval_model_gpt4(args):
                 object_names = [_['name'] for _ in search_result]
                 bboxs = deepcopy([_['bbox'] for _ in search_result])
                 
-                # Prepare object crops
                 object_crops = []
                 for bbox in bboxs:
                     object_crop = vqa_llm.get_object_crop(image, bbox, patch_scale=1.2)
@@ -451,7 +444,6 @@ def eval_model_gpt4(args):
                     bbox_list.append(bbox)
                 bbox_list = [normalize_bbox(bbox, image.width, image.height) for bbox in bbox_list]
                 
-                # Build focus message
                 cur_focus_msg = focus_msg
                 for i, (object_name, bbox) in enumerate(zip(object_names, bbox_list)):
                     cur_focus_msg += "{} <object> at location [{:.3f},{:.3f},{:.3f},{:.3f}]".format(
@@ -468,20 +460,17 @@ def eval_model_gpt4(args):
             else:
                 option_chosen = vqa_llm.multiple_choices_inference_gpt4(image, question, options)
 
-            # Direct option matching from free-form prediction
             option_chosen_direct = -1
             for i, option in enumerate(options):
                 if option.lower() in prediction.lower():
                     option_chosen_direct = i
                     break
 
-            # Calculate accuracy and store results
             correct = 1 if (option_chosen == 0 or option_chosen_direct == 0) else 0
             per_type_acc[test_type].append(correct)
             all_acc.append(correct)
 
             print("--- %s seconds ---" % round(time.time() - start_time, 2))
-            # Store sample results
             result_single_sample.update({
                 'question': question,
                 'options': options,
@@ -500,10 +489,8 @@ def eval_model_gpt4(args):
         with open(args.output_path.replace('.json', f'_{test_type}.json'), 'w') as f:
             json.dump(results[test_type], f, indent=4)
 
-    # Print overall accuracy and save full results
     print(f"Overall accuracy: {np.mean(all_acc)}")
-    with open(args.output_path, 'w') as f:
-        json.dump(results, f, indent=4)
+
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
