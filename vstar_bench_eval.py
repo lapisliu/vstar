@@ -22,6 +22,8 @@ from visual_search import parse_args, VSM, visual_search
 import io
 import base64
 
+import time
+
 def normalize_bbox(bbox, image_width, image_height):
 	normalized_bbox = [bbox[0]/image_width, bbox[1]/image_height, (bbox[0]+bbox[2])/image_width, (bbox[1]+bbox[3])/image_height]
 	normalized_bbox = [np.clip(_, 0, 1) for _ in normalized_bbox]
@@ -249,7 +251,8 @@ def eval_model(args):
 
 	missing_objects_msg = "Sorry, I can not answer the question. Some visual information about the following objects is missing or unclear:"
 	focus_msg = "Additional visual information to focus on: "
-	for test_type in ['direct_attributes', 'difficult', 'easy_single', 'google_street_view', 'multiple', 'small_light']:
+	for test_type in ['easy_single', 'google_street_view_hd', 'multiple', 'small_light', 'no_light', 'cropped_traffic_lights']:
+		start_time = time.time()
 		results[test_type] = []
 		folder = os.path.join(args.benchmark_folder, test_type)
 		image_files = list(filter(lambda file: '.json' not in file, os.listdir(folder)))
@@ -339,6 +342,8 @@ def eval_model(args):
 			per_type_acc[test_type].append(correct)
 			all_acc.append(correct)
 
+			print("--- %s seconds ---" % round(time.time() - start_time, 2))
+
 			result_single_sample['question'] = question
 			result_single_sample['options'] = options
 			result_single_sample['image'] = image_file
@@ -376,7 +381,8 @@ def eval_model_gpt4(args):
     focus_msg = "Additional visual information to focus on: "
 
     # Evaluate each test type
-    for test_type in ['direct_attributes', 'difficult', 'easy_single', 'google_street_view', 'multiple', 'small_light']:
+    for test_type in ['easy_single', 'google_street_view_hd', 'multiple', 'small_light', 'no_light', 'cropped_traffic_lights']:
+        start_time = time.time()
         results[test_type] = []
         folder = os.path.join(args.benchmark_folder, test_type)
         image_files = list(filter(lambda file: '.json' not in file, os.listdir(folder)))
@@ -474,6 +480,7 @@ def eval_model_gpt4(args):
             per_type_acc[test_type].append(correct)
             all_acc.append(correct)
 
+            print("--- %s seconds ---" % round(time.time() - start_time, 2))
             # Store sample results
             result_single_sample.update({
                 'question': question,
