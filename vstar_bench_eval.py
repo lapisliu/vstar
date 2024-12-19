@@ -396,7 +396,7 @@ def eval_model_gpt4(args):
             
             question = annotation['question']
             # Initial free-form response to check for needed visual search
-            prediction = vqa_llm.free_form_inference_gpt4(image, question)
+            prediction = vqa_llm.free_form_inference(image, question)
             
             # Parse missing objects if any
             missing_objects = []
