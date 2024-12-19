@@ -5,6 +5,7 @@ from ultralytics import YOLO
 import openai
 import base64
 from collections import defaultdict
+import time
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 if not openai.api_key:
@@ -12,7 +13,7 @@ if not openai.api_key:
 
 model = YOLO("yolo11x.pt")
 
-benchmark_folder = "test"
+benchmark_folder = "google_street_view_hd"
 
 image_folder = "bench/" + benchmark_folder
 label_folder = image_folder
@@ -25,7 +26,7 @@ total_images = 0
 metrics = defaultdict(lambda: {"TP": 0, "FP": 0, "FN": 0})
 
 
-def get_gpt_response(question, options, cropped_image_pathes):
+def get_gpt_response(question, options, image_path, cropped_image_pathes):
     base64_images = []
     for cropped_image_path in cropped_image_pathes:
         img_file = open(cropped_image_path, "rb")
@@ -33,11 +34,15 @@ def get_gpt_response(question, options, cropped_image_pathes):
         base64_images.append(base64_image)
 
     prompt = f"Question: {question}\nPlease choose the most appropriate option from: {', '.join(options)}\n \
-      				Response with exactly one of the given options. Be sure to consider the images below.\n"
+      				Response with exactly one of the given options. \nBe sure to consider the images below. The first one is the full image, and the followings are the cropped images containing the target object that the question refers to.\n"
     content = []
     content.append({
         "type": "text",
         "text": prompt
+    })
+    content.append({
+        "type": "image_url",
+        "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(open(image_path, 'rb').read()).decode('utf-8')}"}
     })
     for i, base64_image in enumerate(base64_images):
         content.append({
@@ -77,12 +82,16 @@ for image_name in os.listdir(image_folder):
         width, height = img.size
         max_dim = max(width, height) 
 
+    start_time = time.time()
     yolo_results = model.predict(source=image_path, imgsz=max_dim, conf=0.3, classes=[9])
+    print("--- obj detection in %s seconds ---" % round(time.time() - start_time, 2))
     detections = yolo_results[0].boxes  # Get detections for this image
 
     bounding_boxes = []
 
     img = Image.open(image_path)
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
     cropped_pathes = []
 
     for i, box in enumerate(detections):
@@ -94,7 +103,7 @@ for image_name in os.listdir(image_folder):
         cropped.save(cropped_path)
         cropped_pathes.append(cropped_path)
     
-    response = get_gpt_response(question, options, cropped_pathes)
+    response = get_gpt_response(question, options, image_path, cropped_pathes)
 
     for cropped_path in cropped_pathes:
         os.remove(cropped_path)
